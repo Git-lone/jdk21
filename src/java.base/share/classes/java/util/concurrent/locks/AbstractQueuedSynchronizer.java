@@ -459,16 +459,16 @@ public abstract class AbstractQueuedSynchronizer
      */
 
     // Node status bits, also used as argument and return values
-    static final int WAITING   = 1;          // must be 1
-    static final int CANCELLED = 0x80000000; // must be negative
-    static final int COND      = 2;          // in a condition wait
+    static final int WAITING   = 1;          // must be 1 等待状态
+    static final int CANCELLED = 0x80000000; // must be negative 取消入队
+    static final int COND      = 2;          // in a condition wait 条件等待
 
     /** CLH Nodes */
     abstract static class Node {
-        volatile Node prev;       // initially attached via casTail
-        volatile Node next;       // visibly nonnull when signallable
-        Thread waiter;            // visibly nonnull when enqueued
-        volatile int status;      // written by owner, atomic bit ops by others
+        volatile Node prev;       // initially attached via casTail 前指针
+        volatile Node next;       // visibly nonnull when signallable 后指针
+        Thread waiter;            // visibly nonnull when enqueued  线程对象
+        volatile int status;      // written by owner, atomic bit ops by others 等待状态
 
         // methods for atomic operations
         final boolean casPrev(Node c, Node v) {  // for cleanQueue
@@ -791,7 +791,7 @@ public abstract class AbstractQueuedSynchronizer
                     break;                       // inconsistent
                 if (q.status < 0) {              // cancelled
                     if ((s == null ? casTail(q, p) : s.casPrev(q, p)) &&
-                        q.prev == p) {
+                            q.prev == p) {
                         p.casNext(q, s);         // OK if fails
                         if (p.prev == null)
                             signalNext(p);
@@ -865,6 +865,7 @@ public abstract class AbstractQueuedSynchronizer
      * @throws UnsupportedOperationException if exclusive mode is not supported
      */
     protected boolean tryAcquire(int arg) {
+        // protected修饰，需要由继承类实现否则，直接抛出异常 模板方法模式！！！
         throw new UnsupportedOperationException();
     }
 
