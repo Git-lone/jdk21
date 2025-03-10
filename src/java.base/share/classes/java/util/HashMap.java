@@ -394,7 +394,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * necessary. When allocated, length is always a power of two.
      * (We also tolerate length zero in some operations to allow
      * bootstrapping mechanics that are currently not needed.)
-     * 用于存储数据的数组table，数组中的每个元素都称为一个桶
+     * 用于存储数据的数组table，也称作hash表，数组中的每个元素都称为一个桶
      * HashMap采用的是开放地址法+链地址法解决Hash碰撞，即数组桶+链表
      * 由于链表太长影响查询效率，后续将链表优化为红黑树以提升性能
      */
