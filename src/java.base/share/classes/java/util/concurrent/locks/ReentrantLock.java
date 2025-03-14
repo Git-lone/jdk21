@@ -125,13 +125,16 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         final boolean tryLock() {
             Thread current = Thread.currentThread();
             int c = getState();
+            // 状态值为0，代表无锁，通过cas修改state，修改成功则获得锁
             if (c == 0) {
                 if (compareAndSetState(0, 1)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             } else if (getExclusiveOwnerThread() == current) {
+                // ⭐⭐⭐判断当前线程是否为锁的独占线程(可重入性)
                 if (++c < 0) // overflow
+                    // 锁的最大重入次数为int的最大无符号数，超过为负数
                     throw new Error("Maximum lock count exceeded");
                 setState(c);
                 return true;
@@ -223,9 +226,11 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         final boolean initialTryLock() {
             Thread current = Thread.currentThread();
             if (compareAndSetState(0, 1)) { // first attempt is unguarded
+                // 通过cas尝试获取锁
                 setExclusiveOwnerThread(current);
                 return true;
             } else if (getExclusiveOwnerThread() == current) {
+                // cas获取失败，如果锁被当前线程持有，则重入
                 int c = getState() + 1;
                 if (c < 0) // overflow
                     throw new Error("Maximum lock count exceeded");

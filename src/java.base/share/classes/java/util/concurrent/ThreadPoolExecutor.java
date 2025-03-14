@@ -384,15 +384,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
+    // 运行状态控制，int的修改是原子性的
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
     private static final int COUNT_BITS = Integer.SIZE - 3;
     private static final int COUNT_MASK = (1 << COUNT_BITS) - 1;
 
     // runState is stored in the high-order bits
+    // 状态使用高三位，工作线程数使用低29位
+    // 111 000000...000
     private static final int RUNNING    = -1 << COUNT_BITS;
+    // 000 000000...000
     private static final int SHUTDOWN   =  0 << COUNT_BITS;
+    // 001 000000...000
     private static final int STOP       =  1 << COUNT_BITS;
+    // 010 000000...000
     private static final int TIDYING    =  2 << COUNT_BITS;
+    // 011 000000...000
     private static final int TERMINATED =  3 << COUNT_BITS;
 
     // Packing and unpacking ctl
@@ -1139,9 +1146,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     !wt.isInterrupted())
                     wt.interrupt();
                 try {
+                    // 可拓展的任务切面
                     beforeExecute(wt, task);
                     try {
                         task.run();
+                        // 可拓展的任务切面
                         afterExecute(task, null);
                     } catch (Throwable ex) {
                         afterExecute(task, ex);

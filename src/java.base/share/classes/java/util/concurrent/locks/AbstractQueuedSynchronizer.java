@@ -460,7 +460,7 @@ public abstract class AbstractQueuedSynchronizer
 
     // Node status bits, also used as argument and return values
     static final int WAITING   = 1;          // must be 1 等待状态
-    static final int CANCELLED = 0x80000000; // must be negative 取消入队
+    static final int CANCELLED = 0x80000000; // must be negative 取消入队，负值
     static final int COND      = 2;          // in a condition wait 条件等待
 
     /** CLH Nodes */
@@ -468,6 +468,7 @@ public abstract class AbstractQueuedSynchronizer
         volatile Node prev;       // initially attached via casTail 前指针
         volatile Node next;       // visibly nonnull when signallable 后指针
         Thread waiter;            // visibly nonnull when enqueued  线程对象
+        // 结点的等待状态，有初始状态0表示空闲、WAITING：1、CANCELLED：0x80000000(表示为负)、COND：2
         volatile int status;      // written by owner, atomic bit ops by others 等待状态
 
         // methods for atomic operations
@@ -523,16 +524,20 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * Head of the wait queue, lazily initialized.
+     * 先进先出的双向链表，队列的头结点
      */
     private transient volatile Node head;
 
     /**
      * Tail of the wait queue. After initialization, modified only via casTail.
+     * 先进先出的双向链表，队列的尾结点
      */
     private transient volatile Node tail;
 
     /**
      * The synchronization state.
+     * 独占锁场景下，state默认值为0表示无锁，state>0表示锁被占用且记录重入次数
+     * 共享锁场景下，state表示可用资源数量
      */
     private volatile int state;
 
@@ -657,7 +662,7 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
-     * Main acquire method, invoked by all exported acquire methods.
+     * ⭐⭐Main acquire method, invoked by all exported acquire methods.
      *
      * @param node null unless a reacquiring Condition
      * @param arg the acquire argument
@@ -672,6 +677,7 @@ public abstract class AbstractQueuedSynchronizer
         Thread current = Thread.currentThread();
         byte spins = 0, postSpins = 0;   // retries upon unpark of first thread
         boolean interrupted = false, first = false;
+        // 前置结点，第一次进入循环的线程默认为null
         Node pred = null;               // predecessor of node when enqueued
 
         /*
@@ -688,79 +694,118 @@ public abstract class AbstractQueuedSynchronizer
          *  else if WAITING status not set, set and retry
          *  else park and clear WAITING status, and check cancellation
          */
+        if (!first
+                && (pred = (node == null) ? null : node.prev) != null   //
+                && !(first = (head == pred))) {    //
+            // 进来这里的成立条件是：不是第一个结点 && 前置结点不为空 &&
 
         for (;;) {
+            // 是否为head头结点后第一个结点且前置结点是否为头结点
             if (!first && (pred = (node == null) ? null : node.prev) != null &&
+                // 如果不是第一个结点且有前置结点，继续判断前置结点的前置结点是否是头结点
                 !(first = (head == pred))) {
+                // 前置结点state为负，表示取消入队
                 if (pred.status < 0) {
+                    // 清除队列中的结点
                     cleanQueue();           // predecessor cancelled
                     continue;
                 } else if (pred.prev == null) {
+                    // 如果前置结点的前置结点为null，说明前置结点还没有准备就绪，当前线程自选等待
                     Thread.onSpinWait();    // ensure serialization
                     continue;
                 }
             }
+            // 能走到这里说明当前线程有获取锁的资格，有两种情况：
+            // 1.当前线程要么是第一个结点
+            // 2.当前线程还没有进入队列，有两种情况
+            // 2.1.线程第一次尝试获取锁
+            // 2.2.线程第一次在Node结构中获取锁
+            // 即下面的代码块执行判断表示为：如果node为头结点，或者线程node还没有入队
             if (first || pred == null) {
                 boolean acquired;
                 try {
                     if (shared)
+                        // 共享模式
                         acquired = (tryAcquireShared(arg) >= 0);
                     else
+                        // 独占模式
                         acquired = tryAcquire(arg);
                 } catch (Throwable ex) {
                     cancelAcquire(node, interrupted, false);
                     throw ex;
                 }
                 if (acquired) {
+                    // 成功获取到锁
                     if (first) {
+                        // 如果是第一个结点，把head变成当前结点(即当前线程结点出队)
                         node.prev = null;
                         head = node;
                         pred.next = null;
                         node.waiter = null;
                         if (shared)
+                            // 如果是共享模式，通知下一个结点
                             signalNextIfShared(node);
                         if (interrupted)
                             current.interrupt();
                     }
+                    // 成果获取到了锁，直接返回
                     return 1;
                 }
             }
+            // part3.
             Node t;
             if ((t = tail) == null) {           // initialize queue
+                // 尾结点为空，初始化队列，返回尾结点(oom时为null)
+                // 头、尾结点都是虚结点，懒加载机制
                 if (tryInitializeHead() == null)
                     return acquireOnOOME(shared, arg);
             } else if (node == null) {          // allocate; retry before enqueue
                 try {
+                    // 线程第一次创建node，准备入队进行等待。
+                    // 注意这两个类型node的构造函数，创建的是空的结点
                     node = (shared) ? new SharedNode() : new ExclusiveNode();
                 } catch (OutOfMemoryError oome) {
                     return acquireOnOOME(shared, arg);
                 }
             } else if (pred == null) {          // try to enqueue
+                // 尝试入队
+                // 设置当前node的等待线程为当前线程
                 node.waiter = current;
                 node.setPrevRelaxed(t);         // avoid unnecessary fence
+                // cas机制修改tail变量，将tail原来的指向改成指向当前结点
                 if (!casTail(t, node))
+                    // 修改失败，重新执行当前结点直至修改成功
                     node.setPrevRelaxed(null);  // back out
                 else
+                    // 修改成功，开始进入下一阶段
                     t.next = node;
             } else if (first && spins != 0) {
+                // 如果是第一个并且自旋状态，在进行阻塞之前进行自旋
+                // 说明下一个获取锁的马上轮到自己了
                 --spins;                        // reduce unfairness on rewaits
                 Thread.onSpinWait();
             } else if (node.status == 0) {
+                // 如果不是第一个，或者自旋次数用尽，那么把节点状态由默认改为WATING
                 node.status = WAITING;          // enable signal and recheck
             } else {
+                // 进行阻塞操作
                 long nanos;
                 spins = postSpins = (byte)((postSpins << 1) | 1);
                 if (!timed)
+                    // 无时限挂起
                     LockSupport.park(this);
                 else if ((nanos = time - System.nanoTime()) > 0L)
+                    // 有时限挂起
                     LockSupport.parkNanos(this, nanos);
                 else
                     break;
+                // 醒来后，清除状态
                 node.clearStatus();
                 if ((interrupted |= Thread.interrupted()) && interruptible)
                     break;
             }
         }
+        // 取消入队
         return cancelAcquire(node, interrupted, interruptible);
     }
 
@@ -781,6 +826,8 @@ public abstract class AbstractQueuedSynchronizer
      * Possibly repeatedly traverses from tail, unsplicing cancelled
      * nodes until none are found. Unparks nodes that may have been
      * relinked to be next eligible acquirer.
+     * 这个方法是从tail尾结点开始往前，摘除掉状态为CANCELLED的结点
+     * 为什么从后往前：因为从head开始的话，head后面那个已经获得锁并执行完的结点已经被摘除为NULL
      */
     private void cleanQueue() {
         for (;;) {                               // restart point
@@ -987,6 +1034,7 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
+        // 获取锁方法入口，忽略了中断，参数为int代表对state的修改
         if (!tryAcquire(arg))
             acquire(null, arg, false, false, false, 0L);
     }

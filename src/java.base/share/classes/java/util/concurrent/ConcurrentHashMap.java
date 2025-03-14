@@ -796,6 +796,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * when table is null, holds the initial table size to use upon
      * creation, or 0 for default. After initialization, holds the
      * next element count value upon which to resize the table.
+     *
+     * sizeControl 的缩写，决定当前的初始化状态，使用volatile修饰，保证线程可见性。
+     * -1 说明正在初始化，其他线程需要自旋等待。
+     * -N 说明 table 正在进行扩容，高 16 位表示扩容的标识戳，低 16 位减 1 为正在进行扩容的线程数。
+     * 0 表示 table 初始化大小，如果 table 没有初始化。
+     * >0 表示 table 扩容的阈值，如果 table 已经初始化。
      */
     private transient volatile int sizeCtl;
 
@@ -1014,8 +1020,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         for (Node<K,V>[] tab = table;;) {
             Node<K,V> f; int n, i, fh; K fk; V fv;
             if (tab == null || (n = tab.length) == 0)
+                // 为空初始化，采用了volatile和cas
                 tab = initTable();
             else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                // 所得位置结点为空，使用cas设置该结点
                 if (casTabAt(tab, i, null, new Node<K,V>(hash, key, value)))
                     break;                   // no lock when adding to empty bin
             }
@@ -1028,6 +1036,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 return fv;
             else {
                 V oldVal = null;
+                // 元素不为空，使用synchronized加锁的方式实现，遍历桶中的数据及进行替换或新增结点到桶中
                 synchronized (f) {
                     if (tabAt(tab, i) == f) {
                         if (fh >= 0) {
@@ -1065,6 +1074,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 }
                 if (binCount != 0) {
                     if (binCount >= TREEIFY_THRESHOLD)
+                        // 后置判断是否需要转化为红黑树
                         treeifyBin(tab, i);
                     if (oldVal != null)
                         return oldVal;
@@ -2291,7 +2301,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
         while ((tab = table) == null || tab.length == 0) {
+            //　如果 sizeCtl < 0 ,说明另外的线程执行CAS 成功，正在进行初始化。
             if ((sc = sizeCtl) < 0)
+                // 让出cpu使用权
                 Thread.yield(); // lost initialization race; just spin
             else if (U.compareAndSetInt(this, SIZECTL, sc, -1)) {
                 try {
