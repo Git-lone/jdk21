@@ -383,6 +383,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * Returns a power of two size for the given target capacity.
      */
     static final int tableSizeFor(int cap) {
+        // 将其扩容到与 cap 最接近的 2 的幂次方大小
         int n = -1 >>> Integer.numberOfLeadingZeros(cap - 1);
         return (n < 0) ? 1 : (n >= MAXIMUM_CAPACITY) ? MAXIMUM_CAPACITY : n + 1;
     }
@@ -470,6 +471,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             throw new IllegalArgumentException("Illegal load factor: " +
                                                loadFactor);
         this.loadFactor = loadFactor;
+        /**
+         * 由于 HashMap 中没有 capacity 这样的字段，即使指定了初始化容量 initialCapacity
+         * 也只是通过 tableSizeFor 将其扩容到与 initialCapacity 最接近的 2 的幂次方大小，然后暂时赋值给 threshold
+         * 后续通过 resize 方法将 threshold 赋值给 newCap 进行 table 的初始化
+         * */
         this.threshold = tableSizeFor(initialCapacity);
     }
 
@@ -483,6 +489,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *
      * @param  initialCapacity the initial capacity.
      * @throws IllegalArgumentException if the initial capacity is negative.
+     * 指定“容量大小”的构造函数，使用的是默认负载因子
      */
     public HashMap(int initialCapacity) {
         this(initialCapacity, DEFAULT_LOAD_FACTOR);
@@ -491,6 +498,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     /**
      * Constructs an empty {@code HashMap} with the default initial capacity
      * (16) and the default load factor (0.75).
+     * 默认构造函数
      */
     public HashMap() {
         this.loadFactor = DEFAULT_LOAD_FACTOR; // all other fields defaulted
@@ -504,6 +512,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *
      * @param   m the map whose mappings are to be placed in this map
      * @throws  NullPointerException if the specified map is null
+     * 包含另一个“Map”的构造函数
      */
     public HashMap(Map<? extends K, ? extends V> m) {
         this.loadFactor = DEFAULT_LOAD_FACTOR;
@@ -720,7 +729,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         }
         // 修改记录+1
         ++modCount;
-        // 但键值对个数大于扩容阈值时，进行扩容操作
+        // 当键值对个数大于扩容阈值时，进行扩容操作
         if (++size > threshold)
             resize();
         afterNodeInsertion(evict);
@@ -734,20 +743,23 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
      *
-     * 初始化或扩容
+     * 数组初始化或扩容，resize 方法实际上是将 table 初始化和 table 扩容 进行了整合，底层的行为都是给 table 赋值一个新的数组
      * @return the table
      */
     final Node<K,V>[] resize() {
         Node<K,V>[] oldTab = table;
+        // 旧数组容量
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
+        // 旧扩容阈值（容量*负载因子）
         int oldThr = threshold;
         int newCap, newThr = 0;
         if (oldCap > 0) {
-            // 超过最大值就不再扩充了，就只好随你碰撞去吧
+            // 数组超过最大值就不再扩充了，就只好随你碰撞去吧
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            // 数组没超过最大值，就扩充为原来的2倍
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
