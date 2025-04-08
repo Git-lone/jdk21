@@ -1036,11 +1036,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 return fv;
             else {
                 V oldVal = null;
-                // 元素不为空，使用synchronized加锁的方式实现，遍历桶中的数据及进行替换或新增结点到桶中
+                // 元素不为空，使用synchronized加锁的方式实现，锁住链表头结点，遍历桶中的数据及进行替换或新增结点到桶中
                 synchronized (f) {
                     if (tabAt(tab, i) == f) {
                         if (fh >= 0) {
                             binCount = 1;
+                            // 循环加入新的或者覆盖节点
                             for (Node<K,V> e = f;; ++binCount) {
                                 K ek;
                                 if (e.hash == hash &&

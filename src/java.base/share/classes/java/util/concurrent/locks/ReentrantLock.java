@@ -120,6 +120,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
         /**
          * Performs non-fair tryLock.
+         * 默认非公平锁实现
          */
         @ReservedStackAccess
         final boolean tryLock() {
@@ -128,6 +129,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
             // 状态值为0，代表无锁，通过cas修改state，修改成功则获得锁
             if (c == 0) {
                 if (compareAndSetState(0, 1)) {
+                    // cas 获取锁成功，设置当前拥有独占访问权限的线程
                     setExclusiveOwnerThread(current);
                     return true;
                 }
@@ -148,11 +150,17 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * perform initialTryLock check before relaying to
          * corresponding AQS acquire methods.
          */
+        // ⭐⭐⭐用于实现锁初次获取逻辑的核心方法，检查可重入性，
+        // 该操作是为线程提供快速获取锁的尝试机会，
+        // 避免直接进入AQS队列排队，从而提升性能
         abstract boolean initialTryLock();
 
         @ReservedStackAccess
         final void lock() {
+            // initialTryLock 快速获取锁的尝试，避免直接进入AQS队列排队，从而提升性能
+            // 由子类同步控制器实现
             if (!initialTryLock())
+                // 调用aqs模板方法模式，tryAcquire由子类同步控制器实现
                 acquire(1);
         }
 
@@ -175,10 +183,13 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         protected final boolean tryRelease(int releases) {
             int c = getState() - releases;
             if (getExclusiveOwnerThread() != Thread.currentThread())
+                // 当前线程不是持有锁的线程，直接抛出异常
                 throw new IllegalMonitorStateException();
             boolean free = (c == 0);
             if (free)
+                // 设置锁的持有线程为空
                 setExclusiveOwnerThread(null);
+            // 设置锁为空闲状态
             setState(c);
             return free;
         }
@@ -225,12 +236,13 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
         final boolean initialTryLock() {
             Thread current = Thread.currentThread();
+            // ⭐直接通过cas尝试获取锁
             if (compareAndSetState(0, 1)) { // first attempt is unguarded
-                // 通过cas尝试获取锁
+                // cas 获取锁成功，设置当前拥有独占访问权限的线程
                 setExclusiveOwnerThread(current);
                 return true;
             } else if (getExclusiveOwnerThread() == current) {
-                // cas获取失败，如果锁被当前线程持有，则重入
+                // ⭐cas获取失败，如果锁被当前线程持有，则重入
                 int c = getState() + 1;
                 if (c < 0) // overflow
                     throw new Error("Maximum lock count exceeded");
@@ -245,6 +257,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          */
         protected final boolean tryAcquire(int acquires) {
             if (getState() == 0 && compareAndSetState(0, acquires)) {
+                // 独占锁场景下，state默认值为0表示无锁，state>0表示锁被占用且记录重入次数
                 setExclusiveOwnerThread(Thread.currentThread());
                 return true;
             }
@@ -263,14 +276,19 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          */
         final boolean initialTryLock() {
             Thread current = Thread.currentThread();
+            // 获取锁的同步状态，由AQS实现
             int c = getState();
             if (c == 0) {
+                // ⭐1.先通过hasQueuedThreads() 查询队列中是否有线程正在等待获取锁
+                // ⭐2.通过cas获取锁
                 if (!hasQueuedThreads() && compareAndSetState(0, 1)) {
+                    // 队列中无等待线程且通过cas 获取锁成功，设置当前拥有独占访问权限的线程
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             } else if (getExclusiveOwnerThread() == current) {
                 if (++c < 0) // overflow
+                    // 超出最大可重入数
                     throw new Error("Maximum lock count exceeded");
                 setState(c);
                 return true;
@@ -296,6 +314,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      * This is equivalent to using {@code ReentrantLock(false)}.
      */
     public ReentrantLock() {
+        // 默认使用非公平锁实现
         sync = new NonfairSync();
     }
 

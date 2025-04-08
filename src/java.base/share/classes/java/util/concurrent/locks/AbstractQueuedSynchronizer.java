@@ -536,6 +536,7 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * The synchronization state.
+     * ⭐⭐⭐锁的同步状态！！！
      * 独占锁场景下，state默认值为0表示无锁，state>0表示锁被占用且记录重入次数
      * 共享锁场景下，state表示可用资源数量
      */
@@ -547,6 +548,7 @@ public abstract class AbstractQueuedSynchronizer
      * @return current state value
      */
     protected final int getState() {
+        // ⭐⭐⭐获取锁的状态！！！
         return state;
     }
 
@@ -700,7 +702,8 @@ public abstract class AbstractQueuedSynchronizer
             // 进来这里的成立条件是：不是第一个结点 && 前置结点不为空 &&
 
         for (;;) {
-            // 是否为head头结点后第一个结点且前置结点是否为头结点
+            // part1：主要对队列做结点清理
+            // 是否为head头结点后第一个结点且该结点的前置结点是否为头结点
             if (!first && (pred = (node == null) ? null : node.prev) != null &&
                 // 如果不是第一个结点且有前置结点，继续判断前置结点的前置结点是否是头结点
                 !(first = (head == pred))) {
@@ -715,6 +718,7 @@ public abstract class AbstractQueuedSynchronizer
                     continue;
                 }
             }
+            // part2：尝试获取锁
             // 能走到这里说明当前线程有获取锁的资格，有两种情况：
             // 1.当前线程要么是第一个结点
             // 2.当前线程还没有进入队列，有两种情况
@@ -743,7 +747,7 @@ public abstract class AbstractQueuedSynchronizer
                         pred.next = null;
                         node.waiter = null;
                         if (shared)
-                            // 如果是共享模式，通知下一个结点
+                            // ⭐⭐如果是共享模式，通知下一个结点，通过LockSupport.unpark
                             signalNextIfShared(node);
                         if (interrupted)
                             current.interrupt();
@@ -752,7 +756,7 @@ public abstract class AbstractQueuedSynchronizer
                     return 1;
                 }
             }
-            // part3.
+            // part3.后置加载队列、结点入队
             Node t;
             if ((t = tail) == null) {           // initialize queue
                 // 尾结点为空，初始化队列，返回尾结点(oom时为null)
@@ -768,11 +772,12 @@ public abstract class AbstractQueuedSynchronizer
                     return acquireOnOOME(shared, arg);
                 }
             } else if (pred == null) {          // try to enqueue
-                // 尝试入队
-                // 设置当前node的等待线程为当前线程
+                // 封装结点，尝试入队
+                // ⭐设置当前node的等待线程为当前线程
                 node.waiter = current;
+                // 避免成环
                 node.setPrevRelaxed(t);         // avoid unnecessary fence
-                // cas机制修改tail变量，将tail原来的指向改成指向当前结点
+                // ⭐⭐cas机制修改tail变量，将tail原来的指向改成指向当前结点
                 if (!casTail(t, node))
                     // 修改失败，重新执行当前结点直至修改成功
                     node.setPrevRelaxed(null);  // back out
@@ -780,7 +785,7 @@ public abstract class AbstractQueuedSynchronizer
                     // 修改成功，开始进入下一阶段
                     t.next = node;
             } else if (first && spins != 0) {
-                // 如果是第一个并且自旋状态，在进行阻塞之前进行自旋
+                // 如果是第一个并且处于自旋状态，在进行阻塞之前进行自旋
                 // 说明下一个获取锁的马上轮到自己了
                 --spins;                        // reduce unfairness on rewaits
                 Thread.onSpinWait();
@@ -788,14 +793,16 @@ public abstract class AbstractQueuedSynchronizer
                 // 如果不是第一个，或者自旋次数用尽，那么把节点状态由默认改为WATING
                 node.status = WAITING;          // enable signal and recheck
             } else {
-                // 进行阻塞操作
+                // ⭐⭐进行阻塞操作
                 long nanos;
                 spins = postSpins = (byte)((postSpins << 1) | 1);
                 if (!timed)
                     // 无时限挂起
+                    // 无时限挂起会一直等待被唤醒
                     LockSupport.park(this);
                 else if ((nanos = time - System.nanoTime()) > 0L)
                     // 有时限挂起
+                    // 挂起时间结束或被唤醒后，会再一次自旋尝试，如果等到时间结束仍未成功获取，那么直接退出循环取消入队
                     LockSupport.parkNanos(this, nanos);
                 else
                     break;
@@ -805,7 +812,7 @@ public abstract class AbstractQueuedSynchronizer
                     break;
             }
         }
-        // 取消入队
+        // ⭐取消入队
         return cancelAcquire(node, interrupted, interruptible);
     }
 
@@ -1034,7 +1041,7 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
-        // 获取锁方法入口，忽略了中断，参数为int代表对state的修改
+        // ⭐⭐⭐获取锁方法入口，忽略了中断，参数为int代表对state的修改
         if (!tryAcquire(arg))
             acquire(null, arg, false, false, false, 0L);
     }
